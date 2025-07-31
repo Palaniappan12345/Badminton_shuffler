@@ -214,8 +214,15 @@ else:
     # Match Counts
     st.markdown("---")
     st.header("📊 Matches Played")
-    for p in get_active_players():
-        st.markdown(f"- **{p}**: {st.session_state.match_counts[p]} matches")
+
+    all_players = st.session_state.players + st.session_state.removed_players
+    shown = set()
+    for p in all_players:
+        if p not in shown:
+            count = st.session_state.match_counts.get(p, 0)
+            status = "🟢 Active" if p not in st.session_state.removed_players else "❌ Removed"
+            st.markdown(f"- **{p}**: {count} matches &nbsp;&nbsp;{status}")
+            shown.add(p)
 
     # Match History
     st.markdown("---")
