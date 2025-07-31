@@ -23,6 +23,8 @@ if "player_count" not in st.session_state:
     st.session_state.player_count = 4
 if "player_names_input" not in st.session_state:
     st.session_state.player_names_input = {}
+if "removed_players" not in st.session_state:
+    st.session_state.removed_players = []
 
 # --- Logic Functions ---
 def reset_all():
@@ -34,22 +36,31 @@ def reset_all():
     st.session_state.last_losers = []
     st.session_state.match_counts = defaultdict(int)
     st.session_state.player_names_input = {}
+    st.session_state.removed_players = []
+
+def get_active_players():
+    return [p for p in st.session_state.players if p not in st.session_state.removed_players]
 
 def start_new_match():
-    all_players = st.session_state.players.copy()
+    all_players = get_active_players()
+    if len(all_players) < 4:
+        st.session_state.current_match = None
+        st.warning("❗ Not enough active players (min 4) to start a match.")
+        return
+
     if st.session_state.match_history:
         last_match = st.session_state.match_history[-1]
-        winner = last_match["winner"]
-        loser = last_match["loser"]
+        winner = [p for p in last_match["winner"] if p in all_players]
+        loser = [p for p in last_match["loser"] if p in all_players]
         winner_key = tuple(sorted(winner))
         streak = st.session_state.win_streak.get(winner_key, 0)
 
-        if streak < 2:
-            waiting = [p for p in st.session_state.waiting_players if p not in winner and p not in loser]
+        if streak < 2 and len(winner) == 2:
+            waiting = [p for p in all_players if p not in winner and p not in loser]
             random.shuffle(waiting)
             if len(waiting) < 2:
-                st.warning("Not enough players to form new match with current rules.")
                 st.session_state.current_match = None
+                st.warning("❗ Not enough waiting players to complete match with winning pair.")
                 return
             next_match = winner + waiting[:2]
         else:
@@ -57,12 +68,11 @@ def start_new_match():
             eligible = [p for p in all_players if p not in winner]
             random.shuffle(eligible)
             if len(eligible) < 4:
-                st.warning("Not enough players to start new match.")
                 st.session_state.current_match = None
+                st.warning("❗ Not enough eligible players for next match.")
                 return
             next_match = eligible[:4]
     else:
-        random.shuffle(all_players)
         next_match = all_players[:4]
 
     team_a = next_match[:2]
@@ -74,6 +84,9 @@ def submit_match_result(winner_team):
     if not st.session_state.current_match:
         return
     team_a, team_b = st.session_state.current_match
+    team_a = [p for p in team_a if p not in st.session_state.removed_players]
+    team_b = [p for p in team_b if p not in st.session_state.removed_players]
+
     winner = team_a if winner_team == "A" else team_b
     loser = team_b if winner_team == "A" else team_a
 
@@ -81,7 +94,8 @@ def submit_match_result(winner_team):
     st.session_state.win_streak[winner_key] = st.session_state.win_streak.get(winner_key, 0) + 1
 
     for player in team_a + team_b:
-        st.session_state.match_counts[player] += 1
+        if player not in st.session_state.removed_players:
+            st.session_state.match_counts[player] += 1
 
     st.session_state.match_history.append({
         "team_a": team_a,
@@ -92,7 +106,6 @@ def submit_match_result(winner_team):
     st.session_state.waiting_players += loser
     st.session_state.last_losers = loser
     st.session_state.current_match = None
-
     start_new_match()
 
 def add_new_players(names_input):
@@ -100,7 +113,7 @@ def add_new_players(names_input):
     added = []
     skipped = []
     for name in names:
-        if name not in st.session_state.players:
+        if name not in st.session_state.players and name not in st.session_state.removed_players:
             st.session_state.players.append(name)
             st.session_state.waiting_players.append(name)
             added.append(name)
@@ -108,17 +121,17 @@ def add_new_players(names_input):
             skipped.append(name)
 
     if added:
-        st.success(f"✅ Added new players: {', '.join(added)}")
+        st.success(f"✅ Added: {', '.join(added)}")
         st.rerun()
     if skipped:
-        st.warning(f"⚠️ These players were already in the game: {', '.join(skipped)}")
+        st.warning(f"⚠️ Already present or removed: {', '.join(skipped)}")
 
 # --- UI Starts Here ---
 st.title("🏸 Badminton Match Shuffler")
 
 if not st.session_state.players:
     st.header("👥 Add Players")
-    st.session_state.player_count = st.slider("Select number of players", 4, 9, value=4)
+    st.session_state.player_count = st.slider("Number of players", 4, 9, value=4)
 
     names = []
     for i in range(1, st.session_state.player_count + 1):
@@ -128,8 +141,10 @@ if not st.session_state.players:
 
     if st.button("✅ Start Match"):
         player_list = [name.strip() for name in names if name.strip()]
-        if len(player_list) < 4:
-            st.warning("Please enter at least 4 valid player names.")
+        if len(player_list) != len(set(player_list)):
+            st.error("⚠️ Duplicate names found!")
+        elif len(player_list) < 4:
+            st.warning("At least 4 valid player names needed.")
         else:
             st.session_state.players = player_list
             st.session_state.waiting_players = player_list.copy()
@@ -140,50 +155,77 @@ else:
     st.header("🎮 Current Match")
     if st.session_state.current_match:
         team_a, team_b = st.session_state.current_match
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### 🅰️ Team A")
-            st.success(", ".join(team_a))
-        with col2:
-            st.markdown("### 🅱️ Team B")
-            st.info(", ".join(team_b))
+        team_a = [p for p in team_a if p not in st.session_state.removed_players]
+        team_b = [p for p in team_b if p not in st.session_state.removed_players]
 
-        winner_choice = st.radio("🏆 Who won this match?", ["A", "B"], horizontal=True)
-        if st.button("Submit Result"):
-            submit_match_result(winner_choice)
+        if len(team_a) < 2 or len(team_b) < 2:
+            st.warning("❗ Current match has removed players. Resetting match.")
+            start_new_match()
             st.rerun()
-    else:
-        st.info("⚠️ No active match. Waiting for result or new match.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("### 🅰️ Team A")
+                st.success(", ".join(team_a))
+            with col2:
+                st.markdown("### 🅱️ Team B")
+                st.info(", ".join(team_b))
 
-    # --- Add New Players Section ---
+            winner_choice = st.radio("🏆 Who won?", ["A", "B"], horizontal=True)
+            if st.button("Submit Result"):
+                submit_match_result(winner_choice)
+                st.rerun()
+    else:
+        st.info("⚠️ No active match. Waiting to start.")
+
+    # Add Players
     st.markdown("---")
     st.header("➕ Add New Players")
-    new_players_input = st.text_input("Enter new player names (comma-separated)", key="new_players_input")
+    new_players_input = st.text_input("Enter names (comma-separated)", key="new_players_input")
     if st.button("Add Players"):
         add_new_players(new_players_input)
 
+    # Remove Players
+    st.markdown("---")
+    st.header("❌ Remove Players")
+    removable_players = get_active_players()
+    players_to_remove = st.multiselect("Select players to remove", removable_players)
+    if st.button("Remove Selected Players"):
+        if players_to_remove:
+            for p in players_to_remove:
+                if p not in st.session_state.removed_players:
+                    st.session_state.removed_players.append(p)
+                if p in st.session_state.waiting_players:
+                    st.session_state.waiting_players.remove(p)
+            st.success(f"✅ Removed: {', '.join(players_to_remove)}")
+            st.rerun()
+
+    # Waiting Players
     st.markdown("---")
     st.header("🧘 Waiting Players")
-    st.markdown(" ".join([f"`{p}`" for p in st.session_state.waiting_players]) or "_None_")
+    waiting = [p for p in st.session_state.waiting_players if p not in st.session_state.removed_players]
+    st.markdown(" ".join([f"`{p}`" for p in waiting]) or "_None_")
 
+    # Removed Players
+    st.markdown("---")
+    st.header("❌ Removed Players")
+    st.markdown(" ".join([f"`{p}`" for p in st.session_state.removed_players]) or "_None_")
+
+    # Match Counts
     st.markdown("---")
     st.header("📊 Matches Played")
-    match_counts = st.session_state.match_counts
-    if match_counts:
-        for player in st.session_state.players:
-            st.markdown(f"- **{player}**: {match_counts[player]} match{'es' if match_counts[player] != 1 else ''}")
-    else:
-        st.write("No matches recorded yet.")
+    for p in get_active_players():
+        st.markdown(f"- **{p}**: {st.session_state.match_counts[p]} matches")
 
+    # Match History
     st.markdown("---")
     st.header("📜 Match History")
     if st.session_state.match_history:
-        for i, match in enumerate(st.session_state.match_history, 1):
-            st.markdown(
-                f"**Match {i}:** {match['team_a']} vs {match['team_b']} → 🏆 **Winner:** {match['winner']} "
-            )
+        for i, m in enumerate(st.session_state.match_history, 1):
+            st.markdown(f"**Match {i}:** {m['team_a']} vs {m['team_b']} → 🏆 **Winner:** {m['winner']}")
     else:
         st.write("_No matches yet._")
 
+    # Reset
     st.markdown("---")
     st.button("🔄 Reset All", on_click=lambda: (reset_all(), st.rerun()))
