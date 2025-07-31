@@ -23,6 +23,8 @@ if "player_count" not in st.session_state:
     st.session_state.player_count = 4
 if "player_names_input" not in st.session_state:
     st.session_state.player_names_input = {}
+if "removed_players" not in st.session_state:
+    st.session_state.removed_players = []
 
 # --- Logic Functions ---
 def reset_all():
@@ -34,6 +36,7 @@ def reset_all():
     st.session_state.last_losers = []
     st.session_state.match_counts = defaultdict(int)
     st.session_state.player_names_input = {}
+    st.session_state.removed_players = []
 
 def start_new_match():
     all_players = st.session_state.players.copy()
@@ -100,7 +103,7 @@ def add_new_players(names_input):
     added = []
     skipped = []
     for name in names:
-        if name not in st.session_state.players:
+        if name not in st.session_state.players and name not in st.session_state.removed_players:
             st.session_state.players.append(name)
             st.session_state.waiting_players.append(name)
             added.append(name)
@@ -111,7 +114,7 @@ def add_new_players(names_input):
         st.success(f"✅ Added new players: {', '.join(added)}")
         st.rerun()
     if skipped:
-        st.warning(f"⚠️ These players were already in the game: {', '.join(skipped)}")
+        st.warning(f"⚠️ These players were already in the game or removed: {', '.join(skipped)}")
 
 # --- UI Starts Here ---
 st.title("🏸 Badminton Match Shuffler")
@@ -164,10 +167,41 @@ else:
     if st.button("Add Players"):
         add_new_players(new_players_input)
 
+    # --- Remove Players Section ---
+    st.markdown("---")
+    st.header("❌ Remove Players")
+
+    removable_players = [p for p in st.session_state.players]
+    players_to_remove = st.multiselect("Select players to remove", removable_players, key="remove_players")
+
+    if st.button("Remove Selected Players"):
+        if players_to_remove:
+            for p in players_to_remove:
+                if p in st.session_state.players:
+                    st.session_state.players.remove(p)
+                if p in st.session_state.waiting_players:
+                    st.session_state.waiting_players.remove(p)
+                if p not in st.session_state.removed_players:
+                    st.session_state.removed_players.append(p)
+            st.success(f"✅ Removed: {', '.join(players_to_remove)}")
+            st.rerun()
+        else:
+            st.warning("⚠️ No players selected.")
+
+    # --- Waiting Players ---
     st.markdown("---")
     st.header("🧘 Waiting Players")
     st.markdown(" ".join([f"`{p}`" for p in st.session_state.waiting_players]) or "_None_")
 
+    # --- Removed Players ---
+    st.markdown("---")
+    st.header("❌ Removed Players")
+    if st.session_state.removed_players:
+        st.markdown(" ".join([f"`{p}`" for p in st.session_state.removed_players]))
+    else:
+        st.write("_None_")
+
+    # --- Match Counts ---
     st.markdown("---")
     st.header("📊 Matches Played")
     match_counts = st.session_state.match_counts
@@ -177,6 +211,7 @@ else:
     else:
         st.write("No matches recorded yet.")
 
+    # --- Match History ---
     st.markdown("---")
     st.header("📜 Match History")
     if st.session_state.match_history:
