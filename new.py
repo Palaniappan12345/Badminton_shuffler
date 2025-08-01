@@ -18,6 +18,7 @@ if "player_names_input" not in st.session_state: st.session_state.player_names_i
 if "removed_players" not in st.session_state: st.session_state.removed_players = []
 if "last_played_time" not in st.session_state: st.session_state.last_played_time = defaultdict(lambda: -1)
 if "match_number" not in st.session_state: st.session_state.match_number = 0
+if "newly_joined_players" not in st.session_state: st.session_state.newly_joined_players = defaultdict(int)
 
 # --- Logic Functions ---
 def reset_all():
@@ -33,6 +34,7 @@ def reset_all():
     st.session_state.removed_players = []
     st.session_state.last_played_time = defaultdict(lambda: -1)
     st.session_state.match_number = 0
+    st.session_state.newly_joined_players = defaultdict(int)
 
 def get_active_players():
     return [p for p in st.session_state.players if p not in st.session_state.removed_players]
@@ -48,11 +50,12 @@ def start_new_match():
     st.session_state.match_number += 1
 
     def pick_fair_four():
-        # Fair rotation: players with fewer matches go first
-        sorted_players = sorted(
-            all_players,
-            key=lambda p: (st.session_state.match_counts[p], st.session_state.last_played_time[p])
-        )
+        def sort_key(p):
+            if p in st.session_state.newly_joined_players:
+                return (-1, st.session_state.last_played_time[p])  # prioritize newly joined
+            return (st.session_state.match_counts[p], st.session_state.last_played_time[p])
+        
+        sorted_players = sorted(all_players, key=sort_key)
         return sorted_players[:4]
 
     if num_players in [5, 6]:
@@ -127,6 +130,12 @@ def submit_match_result(winner_team):
         st.session_state.match_counts[player] += 1
         st.session_state.last_played_time[player] = st.session_state.match_number
 
+        # Update mid-session tracking
+        if player in st.session_state.newly_joined_players:
+            st.session_state.newly_joined_players[player] += 1
+            if st.session_state.newly_joined_players[player] >= 2:
+                del st.session_state.newly_joined_players[player]
+
     st.session_state.match_history.append({
         "team_a": team_a,
         "team_b": team_b,
@@ -145,6 +154,7 @@ def add_new_players(names_input):
         if name not in st.session_state.players and name not in st.session_state.removed_players:
             st.session_state.players.append(name)
             st.session_state.waiting_players.append(name)
+            st.session_state.newly_joined_players[name] = 0
             added.append(name)
         else:
             skipped.append(name)
@@ -177,6 +187,7 @@ if not st.session_state.players:
             st.session_state.match_counts = defaultdict(int)
             st.session_state.win_counts = defaultdict(int)
             st.session_state.last_played_time = defaultdict(lambda: -1)
+            st.session_state.newly_joined_players = defaultdict(int)
             start_new_match()
             st.rerun()
 else:
