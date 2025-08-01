@@ -46,18 +46,20 @@ def start_new_match():
 
     num_players = len(all_players)
     st.session_state.match_number += 1
+
     def pick_fair_four():
-        # Prioritize players with least matches and oldest last played time
+        # Fair rotation: players with fewer matches go first
         sorted_players = sorted(
             all_players,
             key=lambda p: (st.session_state.match_counts[p], st.session_state.last_played_time[p])
         )
-    return sorted_players[:4]
+        return sorted_players[:4]
 
     if num_players in [5, 6]:
         previous_winner = []
         if st.session_state.match_history:
             previous_winner = sorted(st.session_state.match_history[-1]["winner"])
+
         for _ in range(100):
             selected_four = pick_fair_four()
             random.shuffle(selected_four)
@@ -68,6 +70,7 @@ def start_new_match():
                 return
         st.warning("⚠️ Could not reshuffle to avoid same winning team. Proceeding anyway.")
         selected_four = pick_fair_four()
+        random.shuffle(selected_four)
         team_a, team_b = selected_four[:2], selected_four[2:]
         st.session_state.current_match = (team_a, team_b)
         st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
