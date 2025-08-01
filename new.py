@@ -19,6 +19,7 @@ if "removed_players" not in st.session_state: st.session_state.removed_players =
 if "last_played_time" not in st.session_state: st.session_state.last_played_time = defaultdict(lambda: -1)
 if "match_number" not in st.session_state: st.session_state.match_number = 0
 if "newly_joined_players" not in st.session_state: st.session_state.newly_joined_players = defaultdict(int)
+if "cooldown_players" not in st.session_state: st.session_state.cooldown_players = set()
 
 # --- Logic Functions ---
 def reset_all():
@@ -35,6 +36,7 @@ def reset_all():
     st.session_state.last_played_time = defaultdict(lambda: -1)
     st.session_state.match_number = 0
     st.session_state.newly_joined_players = defaultdict(int)
+    st.session_state.cooldown_players = set()
 
 def get_active_players():
     return [p for p in st.session_state.players if p not in st.session_state.removed_players]
@@ -48,23 +50,15 @@ def start_new_match():
 
     num_players = len(all_players)
     st.session_state.match_number += 1
+
     def pick_fair_four():
         def sort_key(p):
             if p in st.session_state.newly_joined_players:
-                if st.session_state.newly_joined_players[p] < 2:
-                    # Priority during first 2 matches
-                    return (-1, st.session_state.last_played_time[p])
-                else:
-                    # No longer prioritize, treat as recently played
-                    return (st.session_state.match_counts[p], st.session_state.match_number)
+                return (-1, st.session_state.last_played_time[p])  # Prioritize only if within first 2 matches
             return (st.session_state.match_counts[p], st.session_state.last_played_time[p])
-    def pick_fair_four():
-        def sort_key(p):
-            if p in st.session_state.newly_joined_players:
-                return (-1, st.session_state.last_played_time[p])  # prioritize newly joined
-            return (st.session_state.match_counts[p], st.session_state.last_played_time[p])
-        
-        sorted_players = sorted(all_players, key=sort_key)
+
+        eligible_players = [p for p in all_players if p not in st.session_state.cooldown_players]
+        sorted_players = sorted(eligible_players, key=sort_key)
         return sorted_players[:4]
 
     if num_players in [5, 6]:
@@ -79,13 +73,14 @@ def start_new_match():
             if sorted(team_a) != previous_winner and sorted(team_b) != previous_winner:
                 st.session_state.current_match = (team_a, team_b)
                 st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
-                return
-        st.warning("⚠️ Could not reshuffle to avoid same winning team. Proceeding anyway.")
-        selected_four = pick_fair_four()
-        random.shuffle(selected_four)
-        team_a, team_b = selected_four[:2], selected_four[2:]
-        st.session_state.current_match = (team_a, team_b)
-        st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
+                break
+        else:
+            st.warning("⚠️ Could not reshuffle to avoid same winning team. Proceeding anyway.")
+            selected_four = pick_fair_four()
+            random.shuffle(selected_four)
+            team_a, team_b = selected_four[:2], selected_four[2:]
+            st.session_state.current_match = (team_a, team_b)
+            st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
     else:
         if st.session_state.match_history:
             last_match = st.session_state.match_history[-1]
@@ -95,7 +90,7 @@ def start_new_match():
             streak = st.session_state.win_streak.get(winner_key, 0)
 
             if streak < 2 and len(winner) == 2:
-                waiting = [p for p in all_players if p not in winner and p not in loser]
+                waiting = [p for p in all_players if p not in winner and p not in loser and p not in st.session_state.cooldown_players]
                 random.shuffle(waiting)
                 if len(waiting) < 2:
                     st.session_state.current_match = None
@@ -104,7 +99,7 @@ def start_new_match():
                 next_match = winner + waiting[:2]
             else:
                 st.session_state.win_streak[winner_key] = 0
-                eligible = [p for p in all_players if p not in winner]
+                eligible = [p for p in all_players if p not in winner and p not in st.session_state.cooldown_players]
                 random.shuffle(eligible)
                 if len(eligible) < 4:
                     st.session_state.current_match = None
@@ -112,12 +107,17 @@ def start_new_match():
                     return
                 next_match = eligible[:4]
         else:
-            next_match = all_players[:4]
+            next_match = pick_fair_four()
 
         team_a = next_match[:2]
         team_b = next_match[2:4]
         st.session_state.current_match = (team_a, team_b)
         st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
+
+    # Clear cooldown for those who sat out
+    for p in list(st.session_state.cooldown_players):
+        if p not in st.session_state.current_match[0] + st.session_state.current_match[1]:
+            st.session_state.cooldown_players.remove(p)
 
 def submit_match_result(winner_team):
     if not st.session_state.current_match:
@@ -139,11 +139,11 @@ def submit_match_result(winner_team):
         st.session_state.match_counts[player] += 1
         st.session_state.last_played_time[player] = st.session_state.match_number
 
-        # Update mid-session tracking
         if player in st.session_state.newly_joined_players:
             st.session_state.newly_joined_players[player] += 1
             if st.session_state.newly_joined_players[player] >= 2:
                 del st.session_state.newly_joined_players[player]
+                st.session_state.cooldown_players.add(player)
 
     st.session_state.match_history.append({
         "team_a": team_a,
@@ -197,6 +197,7 @@ if not st.session_state.players:
             st.session_state.win_counts = defaultdict(int)
             st.session_state.last_played_time = defaultdict(lambda: -1)
             st.session_state.newly_joined_players = defaultdict(int)
+            st.session_state.cooldown_players = set()
             start_new_match()
             st.rerun()
 else:
