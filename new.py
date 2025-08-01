@@ -1,51 +1,54 @@
 import streamlit as st
 import random
 from collections import defaultdict
+import itertools
+import time
 
 st.set_page_config(page_title="🏸 Badminton Match Shuffler", layout="centered")
 
 # --- Session State Initialization ---
-if "players" not in st.session_state: st.session_state.players = []
-if "waiting_players" not in st.session_state: st.session_state.waiting_players = []
-if "match_history" not in st.session_state: st.session_state.match_history = []
-if "current_match" not in st.session_state: st.session_state.current_match = None
-if "win_streak" not in st.session_state: st.session_state.win_streak = {}
-if "last_losers" not in st.session_state: st.session_state.last_losers = []
-if "match_counts" not in st.session_state: st.session_state.match_counts = defaultdict(int)
-if "win_counts" not in st.session_state: st.session_state.win_counts = defaultdict(int)
-if "player_count" not in st.session_state: st.session_state.player_count = 4
-if "player_names_input" not in st.session_state: st.session_state.player_names_input = {}
-if "removed_players" not in st.session_state: st.session_state.removed_players = []
-if "last_played_time" not in st.session_state: st.session_state.last_played_time = defaultdict(lambda: -1)
-if "match_number" not in st.session_state: st.session_state.match_number = 0
-if "newly_joined_players" not in st.session_state: st.session_state.newly_joined_players = defaultdict(int)
-if "cooldown_players" not in st.session_state: st.session_state.cooldown_players = defaultdict(int)
-
-# --- Logic Functions ---
-def reset_all():
+if "players" not in st.session_state:
     st.session_state.players = []
+if "waiting_players" not in st.session_state:
     st.session_state.waiting_players = []
+if "match_history" not in st.session_state:
     st.session_state.match_history = []
+if "current_match" not in st.session_state:
     st.session_state.current_match = None
-    st.session_state.win_streak = {}
-    st.session_state.last_losers = []
-    st.session_state.match_counts = defaultdict(int)
-    st.session_state.win_counts = defaultdict(int)
-    st.session_state.player_names_input = {}
+if "removed_players" not in st.session_state:
     st.session_state.removed_players = []
+if "match_counts" not in st.session_state:
+    st.session_state.match_counts = defaultdict(int)
+if "win_counts" not in st.session_state:
+    st.session_state.win_counts = defaultdict(int)
+if "last_played_time" not in st.session_state:
     st.session_state.last_played_time = defaultdict(lambda: -1)
-    st.session_state.match_number = 0
+if "player_names_input" not in st.session_state:
+    st.session_state.player_names_input = {}
+if "newly_joined_players" not in st.session_state:
     st.session_state.newly_joined_players = defaultdict(int)
+if "cooldown_players" not in st.session_state:
     st.session_state.cooldown_players = defaultdict(int)
+
+# --- Core Functions ---
+def reset_all():
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
 
 def get_active_players():
     return [p for p in st.session_state.players if p not in st.session_state.removed_players]
+
+def pick_fair_four():
+    eligible_players = [p for p in get_active_players() if p not in st.session_state.cooldown_players]
+    if len(eligible_players) < 4:
+        eligible_players = get_active_players()  # fallback if too few not in cooldown
+    sorted_players = sorted(eligible_players, key=lambda p: (st.session_state.match_counts[p], st.session_state.last_played_time[p]))
+    return sorted_players[:4]
 
 def start_new_match():
     all_players = get_active_players()
     if len(all_players) < 4:
         st.session_state.current_match = None
-        st.warning("❗ Not enough active players (min 4) to start a match.")
         return
 
     # Decrease cooldown counters
@@ -55,126 +58,94 @@ def start_new_match():
         if st.session_state.cooldown_players[p] <= 0:
             del st.session_state.cooldown_players[p]
 
-    st.session_state.match_number += 1
+    last_match = st.session_state.match_history[-1] if st.session_state.match_history else None
 
-    def pick_fair_four():
-        def sort_key(p):
-            if p in st.session_state.newly_joined_players and st.session_state.newly_joined_players[p] < 2:
-                return (-1, st.session_state.last_played_time[p])  # High priority
-            return (st.session_state.match_counts[p], st.session_state.last_played_time[p])
-
-        eligible_players = [p for p in all_players if p not in st.session_state.cooldown_players]
-        sorted_players = sorted(eligible_players, key=sort_key)
-        return sorted_players[:4]
-
-    num_players = len(all_players)
-    if num_players in [5, 6]:
-        previous_winner = []
-        if st.session_state.match_history:
-            previous_winner = sorted(st.session_state.match_history[-1]["winner"])
-        for _ in range(100):
-            selected_four = pick_fair_four()
-            random.shuffle(selected_four)
-            team_a, team_b = selected_four[:2], selected_four[2:]
-            if sorted(team_a) != previous_winner and sorted(team_b) != previous_winner:
-                st.session_state.current_match = (team_a, team_b)
-                st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
-                break
-        else:
-            st.warning("⚠️ Could not reshuffle to avoid same winning team. Proceeding anyway.")
-            selected_four = pick_fair_four()
-            random.shuffle(selected_four)
-            team_a, team_b = selected_four[:2], selected_four[2:]
-            st.session_state.current_match = (team_a, team_b)
-            st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
-    else:
-        if st.session_state.match_history:
-            last_match = st.session_state.match_history[-1]
-            winner = [p for p in last_match["winner"] if p in all_players]
-            loser = [p for p in last_match["loser"] if p in all_players]
-            winner_key = tuple(sorted(winner))
-            streak = st.session_state.win_streak.get(winner_key, 0)
-
-            if streak < 2 and len(winner) == 2:
-                waiting = [p for p in all_players if p not in winner and p not in loser and p not in st.session_state.cooldown_players]
-                random.shuffle(waiting)
-                if len(waiting) < 2:
-                    st.session_state.current_match = None
-                    st.warning("❗ Not enough waiting players to complete match with winning pair.")
-                    return
-                next_match = winner + waiting[:2]
+    if len(all_players) == 4:
+        match_players = all_players
+    elif len(all_players) in [5, 6]:
+        if last_match:
+            winner_pair = tuple(sorted(last_match["winner"]))
+            consecutive_wins = 0
+            for past in reversed(st.session_state.match_history[-3:]):
+                if tuple(sorted(past["winner"])) == winner_pair:
+                    consecutive_wins += 1
+                else:
+                    break
+            if consecutive_wins >= 2:
+                waiting = [p for p in all_players if p not in winner_pair and p not in st.session_state.cooldown_players]
+                if len(waiting) >= 4:
+                    match_players = random.sample(waiting, 4)
+                else:
+                    match_players = random.sample(all_players, 4)
             else:
-                st.session_state.win_streak[winner_key] = 0
-                eligible = [p for p in all_players if p not in winner and p not in st.session_state.cooldown_players]
-                random.shuffle(eligible)
-                if len(eligible) < 4:
-                    st.session_state.current_match = None
-                    st.warning("❗ Not enough eligible players for next match.")
-                    return
-                next_match = eligible[:4]
+                match_players = pick_fair_four()
         else:
-            next_match = pick_fair_four()
+            match_players = pick_fair_four()
+    else:
+        winner = [p for p in last_match["winner"] if p in all_players] if last_match else []
+        loser = [p for p in last_match["loser"] if p in all_players] if last_match else []
+        waiting = [p for p in all_players if p not in winner and p not in loser and p not in st.session_state.cooldown_players]
 
-        team_a = next_match[:2]
-        team_b = next_match[2:4]
-        st.session_state.current_match = (team_a, team_b)
-        st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
+        if last_match and tuple(sorted(last_match["winner"])) == tuple(sorted(last_match["prev_winner"])):
+            eligible = [p for p in all_players if p not in winner and p not in st.session_state.cooldown_players]
+            if len(eligible) >= 4:
+                match_players = random.sample(eligible, 4)
+            else:
+                match_players = random.sample([p for p in all_players if p not in st.session_state.cooldown_players], 4)
+        else:
+            if len(waiting) >= 2:
+                match_players = winner + random.sample(waiting, 2)
+            else:
+                eligible = [p for p in all_players if p not in winner and p not in st.session_state.cooldown_players]
+                if len(eligible) >= 2:
+                    match_players = winner + random.sample(eligible, 2)
+                else:
+                    match_players = random.sample([p for p in all_players if p not in st.session_state.cooldown_players], 4)
 
-def submit_match_result(winner_team):
-    if not st.session_state.current_match:
-        return
+    random.shuffle(match_players)
+    team_a = match_players[:2]
+    team_b = match_players[2:]
+    st.session_state.current_match = (team_a, team_b)
+
+def submit_match_result(winner_team_label):
     team_a, team_b = st.session_state.current_match
-    team_a = [p for p in team_a if p not in st.session_state.removed_players]
-    team_b = [p for p in team_b if p not in st.session_state.removed_players]
+    winner = team_a if winner_team_label == "A" else team_b
+    loser = team_b if winner_team_label == "A" else team_a
 
-    winner = team_a if winner_team == "A" else team_b
-    loser = team_b if winner_team == "A" else team_a
+    for p in team_a + team_b:
+        st.session_state.match_counts[p] += 1
+        st.session_state.last_played_time[p] = time.time()
+        if p in st.session_state.newly_joined_players:
+            st.session_state.newly_joined_players[p] += 1
+            if st.session_state.newly_joined_players[p] >= 2:
+                del st.session_state.newly_joined_players[p]
+                st.session_state.cooldown_players[p] = 2  # set cooldown for next 2 matches
 
-    winner_key = tuple(sorted(winner))
-    st.session_state.win_streak[winner_key] = st.session_state.win_streak.get(winner_key, 0) + 1
+    for p in winner:
+        st.session_state.win_counts[p] += 1
 
-    for player in winner:
-        st.session_state.win_counts[player] += 1
-
-    for player in team_a + team_b:
-        st.session_state.match_counts[player] += 1
-        st.session_state.last_played_time[player] = st.session_state.match_number
-
-        if player in st.session_state.newly_joined_players:
-            st.session_state.newly_joined_players[player] += 1
-            if st.session_state.newly_joined_players[player] >= 2:
-                del st.session_state.newly_joined_players[player]
-                st.session_state.cooldown_players[player] = 2  # Start cooldown
-
+    prev_winner = st.session_state.match_history[-1]["winner"] if st.session_state.match_history else []
     st.session_state.match_history.append({
         "team_a": team_a,
         "team_b": team_b,
         "winner": winner,
-        "loser": loser
+        "loser": loser,
+        "prev_winner": prev_winner
     })
-    st.session_state.waiting_players += loser
-    st.session_state.last_losers = loser
-    st.session_state.current_match = None
+
     start_new_match()
 
-def add_new_players(names_input):
-    names = [name.strip() for name in names_input.split(",") if name.strip()]
-    added, skipped = [], []
-    for name in names:
-        if name not in st.session_state.players and name not in st.session_state.removed_players:
+def add_new_players(new_players_input):
+    new_players = [name.strip() for name in new_players_input.split(",") if name.strip()]
+    current = st.session_state.players
+    for name in new_players:
+        if name not in current:
             st.session_state.players.append(name)
             st.session_state.waiting_players.append(name)
             st.session_state.newly_joined_players[name] = 0
-            added.append(name)
-        else:
-            skipped.append(name)
-    if added:
-        st.success(f"✅ Added: {', '.join(added)}")
-        st.rerun()
-    if skipped:
-        st.warning(f"⚠️ Already present or removed: {', '.join(skipped)}")
+    st.success(f"✅ Added: {', '.join(new_players)}")
 
-# --- UI Code ---
+# --- UI Rendering ---
 st.title("🏸 Badminton Match Shuffler")
 
 if not st.session_state.players:
