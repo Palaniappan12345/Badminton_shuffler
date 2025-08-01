@@ -46,15 +46,13 @@ def start_new_match():
 
     num_players = len(all_players)
     st.session_state.match_number += 1
-
     def pick_fair_four():
-        # Avoid giving priority to new players (last_played_time = -1) by sorting them *after* others
-        def sort_key(p):
-            last_time = st.session_state.last_played_time[p]
-            played = st.session_state.match_counts[p]
-            return (float('inf') if last_time == -1 else last_time, played)
-        sorted_players = sorted(all_players, key=sort_key)
-        return sorted_players[:4]
+        # Prioritize players with least matches and oldest last played time
+        sorted_players = sorted(
+            all_players,
+            key=lambda p: (st.session_state.match_counts[p], st.session_state.last_played_time[p])
+        )
+    return sorted_players[:4]
 
     if num_players in [5, 6]:
         previous_winner = []
