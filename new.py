@@ -198,7 +198,7 @@ if not st.session_state.players:
             st.session_state.win_counts = defaultdict(int)
             st.session_state.last_played_time = defaultdict(lambda: -1)
             st.session_state.newly_joined_players = defaultdict(int)
-            st.session_state.cooldown_players = set()
+            st.session_state.cooldown_players = defaultdict(int)
             start_new_match()
             st.rerun()
 else:
