@@ -48,7 +48,12 @@ def start_new_match():
     st.session_state.match_number += 1
 
     def pick_fair_four():
-        sorted_players = sorted(all_players, key=lambda p: (st.session_state.last_played_time[p], st.session_state.match_counts[p]))
+        # Avoid giving priority to new players (last_played_time = -1) by sorting them *after* others
+        def sort_key(p):
+            last_time = st.session_state.last_played_time[p]
+            played = st.session_state.match_counts[p]
+            return (float('inf') if last_time == -1 else last_time, played)
+        sorted_players = sorted(all_players, key=sort_key)
         return sorted_players[:4]
 
     if num_players in [5, 6]:
@@ -148,7 +153,7 @@ def add_new_players(names_input):
     if skipped:
         st.warning(f"⚠️ Already present or removed: {', '.join(skipped)}")
 
-# --- UI Starts Here ---
+# --- UI ---
 st.title("🏸 Badminton Match Shuffler")
 
 if not st.session_state.players:
@@ -198,14 +203,12 @@ else:
     else:
         st.info("⚠️ No active match. Waiting to start.")
 
-    # Add Players
     st.markdown("---")
     st.header("➕ Add New Players")
     new_players_input = st.text_input("Enter names (comma-separated)", key="new_players_input")
     if st.button("Add Players"):
         add_new_players(new_players_input)
 
-    # Remove Players
     st.markdown("---")
     st.header("❌ Remove Players")
     removable_players = get_active_players()
@@ -220,18 +223,15 @@ else:
             st.success(f"✅ Removed: {', '.join(players_to_remove)}")
             st.rerun()
 
-    # Waiting Players
     st.markdown("---")
     st.header("🧘 Waiting Players")
     waiting = [p for p in st.session_state.waiting_players if p not in st.session_state.removed_players]
     st.markdown(" ".join([f"`{p}`" for p in waiting]) or "_None_")
 
-    # Removed Players
     st.markdown("---")
     st.header("❌ Removed Players")
     st.markdown(" ".join([f"`{p}`" for p in st.session_state.removed_players]) or "_None_")
 
-    # Match Counts
     st.markdown("---")
     st.header("📊 Matches Played")
     all_players = st.session_state.players + st.session_state.removed_players
@@ -241,7 +241,6 @@ else:
         status = "🟢 Active" if p not in st.session_state.removed_players else "❌ Removed"
         st.markdown(f"- **{p}**: {match_count} matches | 🏆 {win_count} wins &nbsp;&nbsp;{status}")
 
-    # Match History
     st.markdown("---")
     st.header("📜 Match History")
     if st.session_state.match_history:
@@ -250,6 +249,5 @@ else:
     else:
         st.write("_No matches yet._")
 
-    # Reset
     st.markdown("---")
     st.button("🔄 Reset All", on_click=lambda: (reset_all(), st.rerun()))
