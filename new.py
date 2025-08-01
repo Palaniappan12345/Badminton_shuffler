@@ -48,7 +48,16 @@ def start_new_match():
 
     num_players = len(all_players)
     st.session_state.match_number += 1
-
+    def pick_fair_four():
+        def sort_key(p):
+            if p in st.session_state.newly_joined_players:
+                if st.session_state.newly_joined_players[p] < 2:
+                    # Priority during first 2 matches
+                    return (-1, st.session_state.last_played_time[p])
+                else:
+                    # No longer prioritize, treat as recently played
+                    return (st.session_state.match_counts[p], st.session_state.match_number)
+            return (st.session_state.match_counts[p], st.session_state.last_played_time[p])
     def pick_fair_four():
         def sort_key(p):
             if p in st.session_state.newly_joined_players:
