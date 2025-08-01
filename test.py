@@ -41,6 +41,10 @@ def reset_all():
 def get_active_players():
     return [p for p in st.session_state.players if p not in st.session_state.removed_players]
 
+def shuffle_match(players):
+    random.shuffle(players)
+    return players[:2], players[2:4]
+
 def start_new_match():
     all_players = get_active_players()
     if len(all_players) < 4:
@@ -48,37 +52,57 @@ def start_new_match():
         st.warning("❗ Not enough active players (min 4) to start a match.")
         return
 
-    if st.session_state.match_history:
-        last_match = st.session_state.match_history[-1]
-        winner = [p for p in last_match["winner"] if p in all_players]
-        loser = [p for p in last_match["loser"] if p in all_players]
-        winner_key = tuple(sorted(winner))
-        streak = st.session_state.win_streak.get(winner_key, 0)
+    num_players = len(all_players)
 
-        if streak < 2 and len(winner) == 2:
-            waiting = [p for p in all_players if p not in winner and p not in loser]
-            random.shuffle(waiting)
-            if len(waiting) < 2:
-                st.session_state.current_match = None
-                st.warning("❗ Not enough waiting players to complete match with winning pair.")
+    if num_players in [5, 6]:
+        previous_winner = []
+        if st.session_state.match_history:
+            previous_winner = sorted(st.session_state.match_history[-1]["winner"])
+
+        for _ in range(100):  # attempt to avoid same team winning
+            random.shuffle(all_players)
+            team_a, team_b = all_players[:2], all_players[2:4]
+            current_teams = sorted(team_a), sorted(team_b)
+            if sorted(team_a) != previous_winner and sorted(team_b) != previous_winner:
+                st.session_state.current_match = (team_a, team_b)
+                st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
                 return
-            next_match = winner + waiting[:2]
-        else:
-            st.session_state.win_streak[winner_key] = 0
-            eligible = [p for p in all_players if p not in winner]
-            random.shuffle(eligible)
-            if len(eligible) < 4:
-                st.session_state.current_match = None
-                st.warning("❗ Not enough eligible players for next match.")
-                return
-            next_match = eligible[:4]
+        st.warning("⚠️ Could not reshuffle to avoid same winning team. Proceeding with random teams.")
+        st.session_state.current_match = (all_players[:2], all_players[2:4])
+        st.session_state.waiting_players = [p for p in all_players if p not in all_players[:4]]
     else:
-        next_match = all_players[:4]
+        # Use original logic
+        if st.session_state.match_history:
+            last_match = st.session_state.match_history[-1]
+            winner = [p for p in last_match["winner"] if p in all_players]
+            loser = [p for p in last_match["loser"] if p in all_players]
+            winner_key = tuple(sorted(winner))
+            streak = st.session_state.win_streak.get(winner_key, 0)
 
-    team_a = next_match[:2]
-    team_b = next_match[2:4]
-    st.session_state.current_match = (team_a, team_b)
-    st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
+            if streak < 2 and len(winner) == 2:
+                waiting = [p for p in all_players if p not in winner and p not in loser]
+                random.shuffle(waiting)
+                if len(waiting) < 2:
+                    st.session_state.current_match = None
+                    st.warning("❗ Not enough waiting players to complete match with winning pair.")
+                    return
+                next_match = winner + waiting[:2]
+            else:
+                st.session_state.win_streak[winner_key] = 0
+                eligible = [p for p in all_players if p not in winner]
+                random.shuffle(eligible)
+                if len(eligible) < 4:
+                    st.session_state.current_match = None
+                    st.warning("❗ Not enough eligible players for next match.")
+                    return
+                next_match = eligible[:4]
+        else:
+            next_match = all_players[:4]
+
+        team_a = next_match[:2]
+        team_b = next_match[2:4]
+        st.session_state.current_match = (team_a, team_b)
+        st.session_state.waiting_players = [p for p in all_players if p not in team_a + team_b]
 
 def submit_match_result(winner_team):
     if not st.session_state.current_match:
@@ -214,7 +238,6 @@ else:
     # Match Counts
     st.markdown("---")
     st.header("📊 Matches Played")
-
     all_players = st.session_state.players + st.session_state.removed_players
     shown = set()
     for p in all_players:
